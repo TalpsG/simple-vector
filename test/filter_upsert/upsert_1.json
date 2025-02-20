@@ -1,0 +1,6 @@
+{
+    "id":1,
+    "vectors":[0.1],
+    "int_field":1,
+    "indexType":"FLAT"
+}
