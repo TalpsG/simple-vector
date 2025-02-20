@@ -1,0 +1,10 @@
+{
+    "vectors":[0.9],
+    "k":5,
+    "indexType":"FLAT",
+    "filter":{
+        "fieldName":"int_field",
+        "fieldValue":47,
+        "op":"="
+    }
+}
