@@ -23,15 +23,19 @@ void VectorDatabase::upsert(uint64_t id, const rapidjson::Document &data,
 
   rapidjson::Document existingData;
   try {
+    // get old json data
     existingData = scalar_storage_.get_scalar(id);
   } catch (const std::runtime_error &e) {
   }
 
   if (existingData.IsObject()) {
+    // remove old data in index
     GlobalLogger->debug("try remove old index");
-    std::vector<float> existingVector(existingData["vectors"].Size());
-    for (rapidjson::SizeType i = 0; i < existingData["vectors"].Size(); ++i) {
-      existingVector[i] = existingData["vectors"][i].GetFloat();
+    // TODO: existingVector is not used
+    std::vector<float> existingVector(existingData[REQUEST_VECTORS].Size());
+    for (rapidjson::SizeType i = 0; i < existingData[REQUEST_VECTORS].Size();
+         ++i) {
+      existingVector[i] = existingData[REQUEST_VECTORS][i].GetFloat();
     }
 
     void *index = getGlobalIndexFactory()->getIndex(index_type);
@@ -43,6 +47,7 @@ void VectorDatabase::upsert(uint64_t id, const rapidjson::Document &data,
     }
     case IndexFactory::IndexType::HNSW: {
       HNSWLibIndex *hnsw_index = static_cast<HNSWLibIndex *>(index);
+      // TODO: markdelete
       break;
     }
     default:
@@ -50,9 +55,10 @@ void VectorDatabase::upsert(uint64_t id, const rapidjson::Document &data,
     }
   }
 
-  std::vector<float> newVector(data["vectors"].Size());
-  for (rapidjson::SizeType i = 0; i < data["vectors"].Size(); ++i) {
-    newVector[i] = data["vectors"][i].GetFloat();
+  // get vectors
+  std::vector<float> newVector(data[REQUEST_VECTORS].Size());
+  for (rapidjson::SizeType i = 0; i < data[REQUEST_VECTORS].Size(); ++i) {
+    newVector[i] = data[REQUEST_VECTORS][i].GetFloat();
   }
 
   GlobalLogger->debug("try add new index");
