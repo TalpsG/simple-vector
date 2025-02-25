@@ -236,6 +236,9 @@ void HttpServer::upsertHandler(const httplib::Request &req,
   uint64_t label = json_request[REQUEST_ID].GetUint64();
 
   IndexFactory::IndexType indexType = getIndexTypeFromRequest(json_request);
+  // wal
+  vector_database_->writeWALLog("upsert", json_request);
+
   vector_database_->upsert(label, json_request, indexType);
 
   rapidjson::Document json_response;
@@ -245,7 +248,6 @@ void HttpServer::upsertHandler(const httplib::Request &req,
 
   json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
                           response_allocator);
-
   setJsonResponse(json_response, res);
 }
 
