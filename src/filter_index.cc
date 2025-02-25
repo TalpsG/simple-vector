@@ -79,3 +79,66 @@ void FilterIndex::getIntFieldFilterBitmap(const std::string &fieldname,
     }
   }
 }
+
+std::string FilterIndex::serializeIntFieldFilter() {
+  std::ostringstream oss;
+
+  for (const auto &field_entry : intFieldFilter) {
+    const std::string &field_name = field_entry.first;
+    const std::map<long, roaring_bitmap_t *> &value_map = field_entry.second;
+
+    for (const auto &value_entry : value_map) {
+      long value = value_entry.first;
+      const roaring_bitmap_t *bitmap = value_entry.second;
+
+      uint32_t size = roaring_bitmap_portable_size_in_bytes(bitmap);
+      char *serialized_bitmap = new char[size];
+      roaring_bitmap_portable_serialize(bitmap, serialized_bitmap);
+
+      oss << field_name << "|" << value << "|";
+      oss.write(serialized_bitmap, size);
+      oss << std::endl;
+
+      delete[] serialized_bitmap;
+    }
+  }
+
+  return oss.str();
+}
+
+void FilterIndex::deserializeIntFieldFilter(
+    const std::string &serialized_data) {
+  std::istringstream iss(serialized_data);
+
+  std::string line;
+  while (std::getline(iss, line)) {
+    std::istringstream line_iss(line);
+
+    std::string field_name;
+    std::getline(line_iss, field_name, '|');
+
+    std::string value_str;
+    std::getline(line_iss, value_str, '|');
+    long value = std::stol(value_str);
+
+    std::string serialized_bitmap(std::istreambuf_iterator<char>(line_iss), {});
+
+    roaring_bitmap_t *bitmap =
+        roaring_bitmap_portable_deserialize(serialized_bitmap.data());
+
+    intFieldFilter[field_name][value] = bitmap;
+  }
+}
+
+void FilterIndex::saveIndex(ScalarStorage &scalar_storage,
+                            const std::string &key) {
+  std::string serialized_data = serializeIntFieldFilter();
+
+  scalar_storage.put(key, serialized_data);
+}
+
+void FilterIndex::loadIndex(ScalarStorage &scalar_storage,
+                            const std::string &key) {
+  std::string serialized_data = scalar_storage.get(key);
+  deserializeIntFieldFilter(serialized_data);
+}

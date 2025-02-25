@@ -1,4 +1,5 @@
 #include "persistence.h"
+#include "index_factory.h"
 #include "logger.h"
 #include <cassert>
 #include <cerrno>
@@ -17,7 +18,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-Persistence::Persistence() : increaseID_(1) {}
+Persistence::Persistence() : increaseID_(1), lastSnapshotID_(0) {}
 
 Persistence::~Persistence() {
   if (wal_fd_ != -1) {
@@ -36,6 +37,7 @@ void Persistence::init(const std::string &local_path, bool flush) {
         std::strerror(errno));
     exit(-1);
   }
+  loadLastSnapshotID();
 }
 
 uint64_t Persistence::increaseID() {
@@ -85,10 +87,13 @@ void Persistence::readNextWALLog(std::string *operation_type,
 
   char buf[sizeof(uint64_t)];
   ::lseek(wal_fd_, read_offset_, SEEK_SET);
-  auto read_size = read(wal_fd_, buf, sizeof(uint64_t));
-  if (read_size != 0 && read_size != -1) {
-    read_offset_ += read_size;
+  while (true) {
+    auto read_size = read(wal_fd_, buf, sizeof(uint64_t));
     assert(read_size == sizeof(uint64_t));
+    if(read_size != 0 && read_size != -1){
+      break;
+    }
+    read_offset_ += read_size;
     uint64_t log_size;
     memcpy(&log_size, buf, sizeof(uint64_t));
     auto log_buf = std::unique_ptr<char>(new char[log_size + 1]);
@@ -117,13 +122,55 @@ void Persistence::readNextWALLog(std::string *operation_type,
       increaseID_ = log_id;
     }
 
-    json_data->Parse(json_data_str.c_str());
-
-    GlobalLogger->debug(
-        "Read WAL log entry: log_id={}, operation_type={}, json_data_str={}",
-        log_id_str, *operation_type, json_data_str);
-  } else {
-    GlobalLogger->debug("No more WAL log entries to read");
+    if (log_id > lastSnapshotID_) {
+      json_data->Parse(json_data_str.c_str());
+      GlobalLogger->debug(
+          "Read WAL log entry: log_id={}, operation_type={}, json_data_str={}",
+          log_id_str, *operation_type, json_data_str);
+      return;
+    }
   }
   ::lseek(wal_fd_, 0, SEEK_END);
+  GlobalLogger->debug("No more WAL log entries to read");
+}
+
+void Persistence::takeSnapshot(ScalarStorage &scalar_storage) {
+  GlobalLogger->debug("Taking snapshot");
+
+  lastSnapshotID_ = increaseID_;
+  std::string snapshot_folder_path = "snapshots_";
+  IndexFactory *index_factory = getGlobalIndexFactory();
+  index_factory->saveIndex(snapshot_folder_path, scalar_storage);
+
+  saveLastSnapshotID();
+  // todo: switch log file 
+}
+
+void Persistence::loadSnapshot(ScalarStorage &scalar_storage) {
+  GlobalLogger->debug("Loading snapshot");
+  IndexFactory *index_factory = getGlobalIndexFactory();
+  index_factory->loadIndex("snapshots_", scalar_storage);
+}
+
+void Persistence::saveLastSnapshotID() {
+  std::ofstream file("snapshots_MaxLogID");
+  if (file.is_open()) {
+    file << lastSnapshotID_;
+    file.close();
+  } else {
+    GlobalLogger->error("Failed to open file snapshots_MaxID for writing");
+  }
+  GlobalLogger->debug("save snapshot Max log ID {}", lastSnapshotID_);
+}
+
+void Persistence::loadLastSnapshotID() {
+  std::ifstream file("snapshots_MaxLogID");
+  if (file.is_open()) {
+    file >> lastSnapshotID_;
+    file.close();
+  } else {
+    GlobalLogger->warn("Failed to open file snapshots_MaxID for reading");
+  }
+
+  GlobalLogger->debug("Loading snapshot Max log ID {}", lastSnapshotID_);
 }

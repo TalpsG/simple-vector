@@ -14,6 +14,8 @@ public:
   std::pair<std::vector<long>, std::vector<float>>
   search_vectors(const std::vector<float> &query, int k,
                  const roaring_bitmap_t *bitmap = nullptr, int ef_search = 50);
+  void saveIndex(const std::string &file_path);
+  void loadIndex(const std::string &file_path);
 
   class RoaringBitmapIDFilter : public hnswlib::BaseFilterFunctor {
   public:
@@ -29,4 +31,6 @@ public:
 
 private:
   hnswlib::HierarchicalNSW<float> *index;
+  hnswlib::SpaceInterface<float> *space;
+  size_t max_elements;
 };

@@ -13,3 +13,4 @@ log的格式为
 # todo:
 1. log 二进制化，现在除了logsize以外，后面存放的是字符串，读取太慢，占用空间也大。
 2. snapshot
+3. 切换log，每一次snapshot后重写一个新的log文件，定期删除其他log文件。

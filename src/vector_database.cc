@@ -20,6 +20,9 @@ VectorDatabase::VectorDatabase(const std::string &db_path,
 }
 void VectorDatabase::reloadDatabase() {
   GlobalLogger->info("Entering VectorDatabase::reloadDatabase()");
+
+  persistence_.loadSnapshot(scalar_storage_);
+
   std::string operation_type;
   rapidjson::Document json_data;
   persistence_.readNextWALLog(&operation_type, &json_data);
@@ -219,4 +222,8 @@ VectorDatabase::search(const rapidjson::Document &json_request) {
     delete filter_bitmap;
   }
   return results;
+}
+
+void VectorDatabase::takeSnapshot() {
+  persistence_.takeSnapshot(scalar_storage_);
 }

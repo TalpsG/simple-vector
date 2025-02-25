@@ -24,6 +24,8 @@ public:
   std::pair<std::vector<long>, std::vector<float>>
   search_vectors(const std::vector<float> &query, int k,
                  const roaring_bitmap_t *bitmap = nullptr);
+  void saveIndex(const std::string &file_path);
+  void loadIndex(const std::string &file_path);
 
 private:
   faiss::Index *index;

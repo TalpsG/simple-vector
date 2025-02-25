@@ -24,6 +24,8 @@ public:
   IndexFactory::IndexType
   getIndexTypeFromRequest(const rapidjson::Document &json_request);
 
+  void takeSnapshot();
+
 private:
   ScalarStorage scalar_storage_;
   Persistence persistence_;
