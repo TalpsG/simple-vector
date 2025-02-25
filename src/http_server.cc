@@ -30,6 +30,12 @@ HttpServer::HttpServer(const std::string &host, int port,
               [this](const httplib::Request &req, httplib::Response &res) {
                 queryHandler(req, res);
               });
+  server.Post(
+      "/admin/snapshot",
+      [this](const httplib::Request &req,
+             httplib::Response &res) { 
+        snapshotHandler(req, res);
+      });
 }
 
 void HttpServer::start() { server.listen(host.c_str(), port); }
@@ -300,5 +306,20 @@ void HttpServer::setErrorJsonResponse(httplib::Response &res, int error_code,
   json_response.AddMember(RESPONSE_RETCODE, error_code, allocator);
   json_response.AddMember(RESPONSE_ERROR_MSG,
                           rapidjson::StringRef(errorMsg.c_str()), allocator);
+  setJsonResponse(json_response, res);
+}
+
+void HttpServer::snapshotHandler(const httplib::Request &req,
+                                 httplib::Response &res) {
+  GlobalLogger->debug("Received snapshot request");
+
+  vector_database_->takeSnapshot(); 
+
+  rapidjson::Document json_response;
+  json_response.SetObject();
+  rapidjson::Document::AllocatorType &allocator = json_response.GetAllocator();
+
+  json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
+                          allocator);
   setJsonResponse(json_response, res);
 }

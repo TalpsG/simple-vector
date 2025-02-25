@@ -6,13 +6,15 @@
 
 HNSWLibIndex::HNSWLibIndex(int dim, int num_data,
                            IndexFactory::MetricType metric, int M,
-                           int ef_construction) {
+                           int ef_construction)
+    : max_elements(num_data) {
   hnswlib::SpaceInterface<float> *space;
   if (metric == IndexFactory::MetricType::L2) {
     space = new hnswlib::L2Space(dim);
   } else {
     space = new hnswlib::InnerProductSpace(dim);
   }
+  this->space = space;
   index =
       new hnswlib::HierarchicalNSW<float>(space, num_data, M, ef_construction);
 }
@@ -48,4 +50,19 @@ HNSWLibIndex::search_vectors(const std::vector<float> &query, int k,
   }
 
   return {indices, distances};
+}
+
+void HNSWLibIndex::saveIndex(const std::string &file_path) {
+  index->saveIndex(file_path);
+}
+
+void HNSWLibIndex::loadIndex(const std::string &file_path) {
+  std::ifstream file(file_path);
+  if (file.good()) {
+    file.close();
+    index->loadIndex(file_path, space, max_elements);
+  } else {
+    GlobalLogger->warn("File not found: {}. Skipping loading index.",
+                       file_path);
+  }
 }

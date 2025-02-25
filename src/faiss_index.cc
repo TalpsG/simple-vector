@@ -3,7 +3,8 @@
 #include "logger.h"
 #include <faiss/IndexFlat.h>
 #include <faiss/IndexIDMap.h>
-#include <iostream>
+#include <faiss/index_io.h>
+#include <fstream>
 #include <vector>
 
 bool RoaringBitmapIDSelector::is_member(int64_t id) const {
@@ -54,4 +55,21 @@ FaissIndex::search_vectors(const std::vector<float> &query, int k,
     }
   }
   return {indices, distances};
+}
+void FaissIndex::saveIndex(const std::string &file_path) {
+  faiss::write_index(index, file_path.c_str());
+}
+
+void FaissIndex::loadIndex(const std::string &file_path) {
+  std::ifstream file(file_path);
+  if (file.good()) {
+    file.close();
+    if (index != nullptr) {
+      delete index;
+    }
+    index = faiss::read_index(file_path.c_str());
+  } else {
+    GlobalLogger->warn("File not found: {}. Skipping loading index.",
+                       file_path);
+  }
 }

@@ -21,6 +21,12 @@ curl -X POST localhost:8080/upsert \
 
 echo -e "\n upsert 3 \n"
 
+curl -X POST localhost:8080/upsert \
+  -H "Content-Type: application/json" \
+  -d @upsert_4.json
+
+echo -e "\n upsert 4 \n"
+
 curl -X POST localhost:8080/search \
   -H "Content-Type: application/json" \
   -d @search_equal.json
