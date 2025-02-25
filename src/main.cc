@@ -18,7 +18,9 @@ int main() {
   GlobalLogger->info("Global IndexFactory initialized");
 
   std::string db_path = "ScalarStorage";
-  VectorDatabase vector_database(db_path);
+  std::string wal_path = "WalStore";
+  VectorDatabase vector_database(db_path, wal_path);
+  vector_database.reloadDatabase();
   GlobalLogger->info("VectorDatabase initialized");
 
   HttpServer server("localhost", 8080, &vector_database);
