@@ -36,12 +36,10 @@ HttpServer::HttpServer(const std::string &host, int port,
               [this](const httplib::Request &req, httplib::Response &res) {
                 snapshotHandler(req, res);
               });
-  server.Post(
-      "/admin/setLeader",
-      [this](const httplib::Request &req,
-             httplib::Response &res) { 
-        setLeaderHandler(req, res);
-      });
+  server.Post("/admin/setLeader",
+              [this](const httplib::Request &req, httplib::Response &res) {
+                setLeaderHandler(req, res);
+              });
 
   server.Post("/admin/addFollower",
               [this](const httplib::Request &req, httplib::Response &res) {
@@ -381,7 +379,7 @@ void HttpServer::addFollowerHandler(const httplib::Request &req,
   std::string endpoint = json_request["endpoint"].GetString();
 
   auto ret = raft_stuff_->addSrv(node_id, endpoint);
-  GlobalLogger->debug("add follower info : {}",ret->get_result_str());
+  GlobalLogger->debug("add follower info : {}", ret->get_result_str());
 
   rapidjson::Document json_response;
   json_response.SetObject();
@@ -411,11 +409,10 @@ void HttpServer::listNodeHandler(const httplib::Request &req,
         allocator);
     node_object.AddMember(
         "state", rapidjson::Value(std::get<2>(node_info).c_str(), allocator),
-        allocator); 
-    node_object.AddMember("last_log_idx", std::get<3>(node_info),
-                          allocator); 
+        allocator);
+    node_object.AddMember("last_log_idx", std::get<3>(node_info), allocator);
     node_object.AddMember("last_succ_resp_us", std::get<4>(node_info),
-                          allocator); 
+                          allocator);
     nodes_array.PushBack(node_object, allocator);
   }
   json_response.AddMember("nodes", nodes_array, allocator);

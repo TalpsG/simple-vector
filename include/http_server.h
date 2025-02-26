@@ -23,14 +23,9 @@ private:
   void upsertHandler(const httplib::Request &req, httplib::Response &res);
   void queryHandler(const httplib::Request &req, httplib::Response &res);
   void snapshotHandler(const httplib::Request &req, httplib::Response &res);
-  void
-  setLeaderHandler(const httplib::Request &req,
-                   httplib::Response &res); // 添加 setLeaderHandler 函数声明
-  void addFollowerHandler(
-      const httplib::Request &req,
-      httplib::Response &res); // 添加 addFollowerHandler 方法声明
-  void listNodeHandler(const httplib::Request &req,
-                       httplib::Response &res); // 添加 listNodeHandler 函数声明
+  void setLeaderHandler(const httplib::Request &req, httplib::Response &res);
+  void addFollowerHandler(const httplib::Request &req, httplib::Response &res);
+  void listNodeHandler(const httplib::Request &req, httplib::Response &res);
 
   void setJsonResponse(const rapidjson::Document &json_response,
                        httplib::Response &res);
