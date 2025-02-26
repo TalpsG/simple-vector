@@ -26,4 +26,7 @@ constexpr char REQUEST_FILTER_FIELD[] = "fieldName";
 constexpr char REQUEST_FILTER_FIELD_VALUE[] = "fieldValue";
 constexpr char REQUEST_FILTER_OP[] = "op";
 
+constexpr char REQUEST_NODEID[] = "nodeId";
+constexpr char REQUEST_ENDPOINT[] = "endpoint";
+
 constexpr char VERSION[] = "1.0";

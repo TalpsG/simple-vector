@@ -41,9 +41,8 @@ void *IndexFactory::getIndex(IndexType type) const {
   return nullptr;
 }
 
-void IndexFactory::saveIndex(
-    const std::string &folder_path,
-    ScalarStorage &scalar_storage) { 
+void IndexFactory::saveIndex(const std::string &folder_path,
+                             ScalarStorage &scalar_storage) {
 
   for (const auto &index_entry : index_map) {
     IndexType index_type = index_entry.first;
@@ -56,15 +55,14 @@ void IndexFactory::saveIndex(
       static_cast<FaissIndex *>(index)->saveIndex(file_path);
     } else if (index_type == IndexType::HNSW) {
       static_cast<HNSWLibIndex *>(index)->saveIndex(file_path);
-    } else if (index_type == IndexType::FILTER) { 
+    } else if (index_type == IndexType::FILTER) {
       static_cast<FilterIndex *>(index)->saveIndex(scalar_storage, file_path);
     }
   }
 }
 
-void IndexFactory::loadIndex(
-    const std::string &folder_path,
-    ScalarStorage &scalar_storage) { 
+void IndexFactory::loadIndex(const std::string &folder_path,
+                             ScalarStorage &scalar_storage) {
   for (const auto &index_entry : index_map) {
     IndexType index_type = index_entry.first;
     void *index = index_entry.second;
@@ -76,7 +74,7 @@ void IndexFactory::loadIndex(
       static_cast<FaissIndex *>(index)->loadIndex(file_path);
     } else if (index_type == IndexType::HNSW) {
       static_cast<HNSWLibIndex *>(index)->loadIndex(file_path);
-    } else if (index_type == IndexType::FILTER) { 
+    } else if (index_type == IndexType::FILTER) {
       static_cast<FilterIndex *>(index)->loadIndex(scalar_storage, file_path);
     }
   }

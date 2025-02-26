@@ -3,6 +3,7 @@
 #include "faiss_index.h"
 #include "httplib.h"
 #include "index_factory.h"
+#include "raft_stuff.h"
 #include "vector_database.h"
 #include <rapidjson/document.h>
 #include <string>
@@ -11,8 +12,8 @@ class HttpServer {
 public:
   enum class CheckType { SEARCH, INSERT, UPSERT };
 
-  HttpServer(const std::string &host, int port,
-             VectorDatabase *vector_database);
+  HttpServer(const std::string &host, int port, VectorDatabase *vector_database,
+             RaftStuff *raft_stuff);
   void start();
   void startTimerThread(unsigned int interval_seconds);
 
@@ -22,6 +23,14 @@ private:
   void upsertHandler(const httplib::Request &req, httplib::Response &res);
   void queryHandler(const httplib::Request &req, httplib::Response &res);
   void snapshotHandler(const httplib::Request &req, httplib::Response &res);
+  void
+  setLeaderHandler(const httplib::Request &req,
+                   httplib::Response &res); // 添加 setLeaderHandler 函数声明
+  void addFollowerHandler(
+      const httplib::Request &req,
+      httplib::Response &res); // 添加 addFollowerHandler 方法声明
+  void listNodeHandler(const httplib::Request &req,
+                       httplib::Response &res); // 添加 listNodeHandler 函数声明
 
   void setJsonResponse(const rapidjson::Document &json_response,
                        httplib::Response &res);
@@ -36,4 +45,5 @@ private:
   std::string host;
   int port;
   VectorDatabase *vector_database_;
+  RaftStuff *raft_stuff_;
 };

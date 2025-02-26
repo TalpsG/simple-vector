@@ -89,10 +89,10 @@ void Persistence::readNextWALLog(std::string *operation_type,
   ::lseek(wal_fd_, read_offset_, SEEK_SET);
   while (true) {
     auto read_size = read(wal_fd_, buf, sizeof(uint64_t));
-    assert(read_size == sizeof(uint64_t));
-    if(read_size != 0 && read_size != -1){
+    if (read_size == 0 || read_size == -1) {
       break;
     }
+    assert(read_size == sizeof(uint64_t));
     read_offset_ += read_size;
     uint64_t log_size;
     memcpy(&log_size, buf, sizeof(uint64_t));
@@ -138,12 +138,12 @@ void Persistence::takeSnapshot(ScalarStorage &scalar_storage) {
   GlobalLogger->debug("Taking snapshot");
 
   lastSnapshotID_ = increaseID_;
-  std::string snapshot_folder_path = "snapshots_";
+  std::string snapshot_file_prefix = "snapshots_";
   IndexFactory *index_factory = getGlobalIndexFactory();
-  index_factory->saveIndex(snapshot_folder_path, scalar_storage);
+  index_factory->saveIndex(snapshot_file_prefix, scalar_storage);
 
   saveLastSnapshotID();
-  // todo: switch log file 
+  // todo: switch log file
 }
 
 void Persistence::loadSnapshot(ScalarStorage &scalar_storage) {

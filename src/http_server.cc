@@ -4,13 +4,15 @@
 #include "hnswlib_index.h"
 #include "index_factory.h"
 #include "logger.h"
+#include "raft_stuff.h"
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
 HttpServer::HttpServer(const std::string &host, int port,
-                       VectorDatabase *vector_database)
-    : host(host), port(port), vector_database_(vector_database) {
+                       VectorDatabase *vector_database, RaftStuff *raft_stuff)
+    : host(host), port(port), vector_database_(vector_database),
+      raft_stuff_(raft_stuff) {
   server.Post("/search",
               [this](const httplib::Request &req, httplib::Response &res) {
                 searchHandler(req, res);
@@ -30,12 +32,26 @@ HttpServer::HttpServer(const std::string &host, int port,
               [this](const httplib::Request &req, httplib::Response &res) {
                 queryHandler(req, res);
               });
+  server.Post("/admin/snapshot",
+              [this](const httplib::Request &req, httplib::Response &res) {
+                snapshotHandler(req, res);
+              });
   server.Post(
-      "/admin/snapshot",
+      "/admin/setLeader",
       [this](const httplib::Request &req,
              httplib::Response &res) { 
-        snapshotHandler(req, res);
+        setLeaderHandler(req, res);
       });
+
+  server.Post("/admin/addFollower",
+              [this](const httplib::Request &req, httplib::Response &res) {
+                addFollowerHandler(req, res);
+              });
+
+  server.Get("/admin/listNode",
+             [this](const httplib::Request &req, httplib::Response &res) {
+               listNodeHandler(req, res);
+             });
 }
 
 void HttpServer::start() { server.listen(host.c_str(), port); }
@@ -313,11 +329,96 @@ void HttpServer::snapshotHandler(const httplib::Request &req,
                                  httplib::Response &res) {
   GlobalLogger->debug("Received snapshot request");
 
-  vector_database_->takeSnapshot(); 
+  vector_database_->takeSnapshot();
 
   rapidjson::Document json_response;
   json_response.SetObject();
   rapidjson::Document::AllocatorType &allocator = json_response.GetAllocator();
+
+  json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
+                          allocator);
+  setJsonResponse(json_response, res);
+}
+
+void HttpServer::setLeaderHandler(const httplib::Request &req,
+                                  httplib::Response &res) {
+  GlobalLogger->debug("Received setLeader request");
+
+  raft_stuff_->enableElectionTimeout(500, 1000);
+
+  rapidjson::Document json_response;
+  json_response.SetObject();
+  rapidjson::Document::AllocatorType &allocator = json_response.GetAllocator();
+
+  json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
+                          allocator);
+  setJsonResponse(json_response, res);
+}
+
+void HttpServer::addFollowerHandler(const httplib::Request &req,
+                                    httplib::Response &res) {
+  GlobalLogger->debug("Received addFollower request");
+
+  rapidjson::Document json_request;
+  json_request.Parse(req.body.c_str());
+
+  if (!json_request.IsObject()) {
+    GlobalLogger->error("Invalid JSON request");
+    res.status = 400;
+    setErrorJsonResponse(res, RESPONSE_RETCODE_ERROR, "Invalid JSON request");
+    return;
+  }
+
+  if (!raft_stuff_->isLeader()) {
+    GlobalLogger->error("Current node is not the leader");
+    res.status = 400;
+    setErrorJsonResponse(res, RESPONSE_RETCODE_ERROR,
+                         "Current node is not the leader");
+    return;
+  }
+
+  int node_id = json_request["nodeId"].GetInt();
+  std::string endpoint = json_request["endpoint"].GetString();
+
+  auto ret = raft_stuff_->addSrv(node_id, endpoint);
+  GlobalLogger->debug("add follower info : {}",ret->get_result_str());
+
+  rapidjson::Document json_response;
+  json_response.SetObject();
+  rapidjson::Document::AllocatorType &allocator = json_response.GetAllocator();
+
+  json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
+                          allocator);
+  setJsonResponse(json_response, res);
+}
+
+void HttpServer::listNodeHandler(const httplib::Request &req,
+                                 httplib::Response &res) {
+  GlobalLogger->debug("Received listNode request");
+
+  auto nodes_info = raft_stuff_->getAllNodesInfo();
+
+  rapidjson::Document json_response;
+  json_response.SetObject();
+  rapidjson::Document::AllocatorType &allocator = json_response.GetAllocator();
+
+  rapidjson::Value nodes_array(rapidjson::kArrayType);
+  for (const auto &node_info : nodes_info) {
+    rapidjson::Value node_object(rapidjson::kObjectType);
+    node_object.AddMember("nodeId", std::get<0>(node_info), allocator);
+    node_object.AddMember(
+        "endpoint", rapidjson::Value(std::get<1>(node_info).c_str(), allocator),
+        allocator);
+    node_object.AddMember(
+        "state", rapidjson::Value(std::get<2>(node_info).c_str(), allocator),
+        allocator); 
+    node_object.AddMember("last_log_idx", std::get<3>(node_info),
+                          allocator); 
+    node_object.AddMember("last_succ_resp_us", std::get<4>(node_info),
+                          allocator); 
+    nodes_array.PushBack(node_object, allocator);
+  }
+  json_response.AddMember("nodes", nodes_array, allocator);
 
   json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
                           allocator);

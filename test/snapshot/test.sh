@@ -1,3 +1,3 @@
-curl -X POST localhost:8080/admin/snapshot \
+curl -X POST localhost:9091/admin/snapshot \
   -H "Content-Type: application/json" \
   -d '{}'
