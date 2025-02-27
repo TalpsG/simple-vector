@@ -4,7 +4,7 @@
 #include "hnswlib_index.h"
 #include "index_factory.h"
 #include "logger.h"
-#include "raft_stuff.h"
+#include <iostream>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -32,10 +32,12 @@ HttpServer::HttpServer(const std::string &host, int port,
               [this](const httplib::Request &req, httplib::Response &res) {
                 queryHandler(req, res);
               });
+
   server.Post("/admin/snapshot",
               [this](const httplib::Request &req, httplib::Response &res) {
                 snapshotHandler(req, res);
               });
+
   server.Post("/admin/setLeader",
               [this](const httplib::Request &req, httplib::Response &res) {
                 setLeaderHandler(req, res);
@@ -50,9 +52,17 @@ HttpServer::HttpServer(const std::string &host, int port,
              [this](const httplib::Request &req, httplib::Response &res) {
                listNodeHandler(req, res);
              });
+
+  server.Get("/admin/getNode",
+             [this](const httplib::Request &req, httplib::Response &res) {
+               getNodeHandler(req, res);
+             });
 }
 
-void HttpServer::start() { server.listen(host.c_str(), port); }
+void HttpServer::start() {
+  server.set_payload_max_length(64 * 1024 * 1024);
+  server.listen(host.c_str(), port);
+}
 
 bool HttpServer::isRequestValid(const rapidjson::Document &json_request,
                                 CheckType check_type) {
@@ -79,6 +89,7 @@ bool HttpServer::isRequestValid(const rapidjson::Document &json_request,
 
 IndexFactory::IndexType
 HttpServer::getIndexTypeFromRequest(const rapidjson::Document &json_request) {
+
   if (json_request.HasMember(REQUEST_INDEX_TYPE) &&
       json_request[REQUEST_INDEX_TYPE].IsString()) {
     std::string index_type_str = json_request[REQUEST_INDEX_TYPE].GetString();
@@ -256,10 +267,8 @@ void HttpServer::upsertHandler(const httplib::Request &req,
   uint64_t label = json_request[REQUEST_ID].GetUint64();
 
   IndexFactory::IndexType indexType = getIndexTypeFromRequest(json_request);
-  // wal
-  vector_database_->writeWALLog("upsert", json_request);
 
-  vector_database_->upsert(label, json_request, indexType);
+  raft_stuff_->appendEntries(req.body);
 
   rapidjson::Document json_response;
   json_response.SetObject();
@@ -268,6 +277,7 @@ void HttpServer::upsertHandler(const httplib::Request &req,
 
   json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
                           response_allocator);
+
   setJsonResponse(json_response, res);
 }
 
@@ -301,25 +311,6 @@ void HttpServer::queryHandler(const httplib::Request &req,
 
   json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
                           allocator);
-  setJsonResponse(json_response, res);
-}
-
-void HttpServer::setJsonResponse(const rapidjson::Document &json_response,
-                                 httplib::Response &res) {
-  rapidjson::StringBuffer buffer;
-  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-  json_response.Accept(writer);
-  res.set_content(buffer.GetString(), RESPONSE_CONTENT_TYPE_JSON);
-}
-
-void HttpServer::setErrorJsonResponse(httplib::Response &res, int error_code,
-                                      const std::string &errorMsg) {
-  rapidjson::Document json_response;
-  json_response.SetObject();
-  rapidjson::Document::AllocatorType &allocator = json_response.GetAllocator();
-  json_response.AddMember(RESPONSE_RETCODE, error_code, allocator);
-  json_response.AddMember(RESPONSE_ERROR_MSG,
-                          rapidjson::StringRef(errorMsg.c_str()), allocator);
   setJsonResponse(json_response, res);
 }
 
@@ -379,7 +370,9 @@ void HttpServer::addFollowerHandler(const httplib::Request &req,
   std::string endpoint = json_request["endpoint"].GetString();
 
   auto ret = raft_stuff_->addSrv(node_id, endpoint);
-  GlobalLogger->debug("add follower info : {}", ret->get_result_str());
+  if(!ret->get_accepted()){
+    GlobalLogger->debug("Failed to add follower node {}",ret->get_result_str());
+  }
 
   rapidjson::Document json_response;
   json_response.SetObject();
@@ -419,5 +412,54 @@ void HttpServer::listNodeHandler(const httplib::Request &req,
 
   json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
                           allocator);
+  setJsonResponse(json_response, res);
+}
+
+void HttpServer::getNodeHandler(const httplib::Request &req,
+                                httplib::Response &res) {
+  GlobalLogger->debug("Received getNode request");
+
+  std::tuple<int, std::string, std::string, nuraft::ulong, nuraft::ulong>
+      node_info = raft_stuff_->getCurrentNodesInfo();
+
+  rapidjson::Document json_response;
+  json_response.SetObject();
+  rapidjson::Document::AllocatorType &allocator = json_response.GetAllocator();
+
+  rapidjson::Value nodes_array(rapidjson::kArrayType);
+  rapidjson::Value node_object(rapidjson::kObjectType);
+  node_object.AddMember("nodeId", std::get<0>(node_info), allocator);
+  node_object.AddMember(
+      "endpoint", rapidjson::Value(std::get<1>(node_info).c_str(), allocator),
+      allocator);
+  node_object.AddMember(
+      "state", rapidjson::Value(std::get<2>(node_info).c_str(), allocator),
+      allocator);
+  node_object.AddMember("last_log_idx", std::get<3>(node_info), allocator);
+  node_object.AddMember("last_succ_resp_us", std::get<4>(node_info), allocator);
+
+  json_response.AddMember("node", node_object, allocator);
+
+  json_response.AddMember(RESPONSE_RETCODE, RESPONSE_RETCODE_SUCCESS,
+                          allocator);
+  setJsonResponse(json_response, res);
+}
+
+void HttpServer::setJsonResponse(const rapidjson::Document &json_response,
+                                 httplib::Response &res) {
+  rapidjson::StringBuffer buffer;
+  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+  json_response.Accept(writer);
+  res.set_content(buffer.GetString(), RESPONSE_CONTENT_TYPE_JSON);
+}
+
+void HttpServer::setErrorJsonResponse(httplib::Response &res, int error_code,
+                                      const std::string &errorMsg) {
+  rapidjson::Document json_response;
+  json_response.SetObject();
+  rapidjson::Document::AllocatorType &allocator = json_response.GetAllocator();
+  json_response.AddMember(RESPONSE_RETCODE, error_code, allocator);
+  json_response.AddMember(RESPONSE_ERROR_MSG,
+                          rapidjson::StringRef(errorMsg.c_str()), allocator);
   setJsonResponse(json_response, res);
 }

@@ -26,7 +26,7 @@ private:
   void setLeaderHandler(const httplib::Request &req, httplib::Response &res);
   void addFollowerHandler(const httplib::Request &req, httplib::Response &res);
   void listNodeHandler(const httplib::Request &req, httplib::Response &res);
-
+  void getNodeHandler(const httplib::Request &req, httplib::Response &res);
   void setJsonResponse(const rapidjson::Document &json_response,
                        httplib::Response &res);
   void setErrorJsonResponse(httplib::Response &res, int error_code,

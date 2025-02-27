@@ -1,33 +1,37 @@
 #include "http_server.h"
 #include "index_factory.h"
 #include "logger.h"
-#include "raft_stuff.h"
 #include "vector_database.h"
 
-struct Node {
-  int node_id;
-  std::string endpoint;
-  int raft_port;
-  int vdb_port;
-};
-const Node nodes[] = {
-    {},
-    {1, "127.0.0.1:8081", 8081, 9091},
-    {2, "127.0.0.1:8082", 8082, 9092},
-    {3, "127.0.0.1:8083", 8083, 9093},
-};
+std::map<std::string, std::string> readConfigFile(const std::string &filename) {
+  std::ifstream file(filename);
+  std::map<std::string, std::string> config;
+  if (file.is_open()) {
+    std::string line;
+    while (std::getline(file, line)) {
+      std::stringstream ss(line);
+      std::string key, value;
+      std::getline(ss, key, '=');
+      std::getline(ss, value);
+      config[key] = value;
+    }
+    file.close();
+  } else {
+    GlobalLogger->error("Failed to open config file: {}", filename);
+    throw std::runtime_error("Failed to open config file: " + filename);
+  }
+  return config;
+}
 
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
   if (argc != 2) {
-    std::cerr << "Usage: " << argv[0] << " <node_id>" << std::endl;
+    std::cerr << "Usage: " << argv[0] << " <config_file>" << std::endl;
     return 1;
   }
-  int node_id = std::stoi(argv[1]);
-  if (node_id < 1 || node_id > 3) {
-    std::cerr << "Invalid node_id, 1 <= node_id <=3" << std::endl;
-    return 1;
-  }
-  auto [_, endpoint, raft_port, vdb_port] = nodes[node_id];
+
+  std::string config_file_path = argv[1];
+
+  auto config = readConfigFile(config_file_path);
 
   init_global_logger();
   set_log_level(spdlog::level::debug);
@@ -35,24 +39,32 @@ int main(int argc, char **argv) {
   GlobalLogger->info("Global logger initialized");
 
   int dim = 1;
-  int num_data = 1000;
+  int num_data = 100000;
   IndexFactory *globalIndexFactory = getGlobalIndexFactory();
   globalIndexFactory->init(IndexFactory::IndexType::FLAT, dim);
   globalIndexFactory->init(IndexFactory::IndexType::HNSW, dim, num_data);
   globalIndexFactory->init(IndexFactory::IndexType::FILTER);
   GlobalLogger->info("Global IndexFactory initialized");
 
-  std::string db_path = "ScalarStorage";
-  std::string wal_path = "WalStore";
+  std::string db_path = config["db_path"];
+  std::string wal_path = config["wal_path"];
+  int node_id = std::stoi(config["node_id"]);
+  std::string endpoint = config["endpoint"];
+  int port = std::stoi(config["port"]);
+
   VectorDatabase vector_database(db_path, wal_path);
-  RaftStuff raftStuff(node_id, endpoint, raft_port);
+  vector_database.reloadDatabase();
+  GlobalLogger->info("VectorDatabase initialized");
+
+  RaftStuff raftStuff(node_id, endpoint, port, &vector_database);
   GlobalLogger->debug(
       "RaftStuff object created with node_id: {}, endpoint: {}, port: {}",
-      node_id, endpoint, raft_port);
-  vector_database.reloadDatabase();
-  GlobalLogger->info("VectorDatabase initialized port: {}", vdb_port);
+      node_id, endpoint, port);
 
-  HttpServer server("localhost", vdb_port, &vector_database, &raftStuff);
+  std::string http_server_address = config["http_server_address"];
+  int http_server_port = std::stoi(config["http_server_port"]);
+  HttpServer server(http_server_address, http_server_port, &vector_database,
+                    &raftStuff);
   GlobalLogger->info("HttpServer created");
   server.start();
 

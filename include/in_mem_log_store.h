@@ -21,6 +21,8 @@ limitations under the License.
 #include "libnuraft/internal_timer.hxx"
 #include "libnuraft/log_store.hxx"
 
+#include "vector_database.h"
+
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -31,7 +33,7 @@ class raft_server;
 
 class inmem_log_store : public log_store {
 public:
-  inmem_log_store();
+  inmem_log_store(VectorDatabase *vector_database);
 
   ~inmem_log_store();
 
@@ -130,6 +132,8 @@ private:
    * Last written log index.
    */
   std::atomic<uint64_t> disk_emul_last_durable_index_;
+
+  VectorDatabase *vector_database_;
 
   // Testing purpose --------------- END
 };

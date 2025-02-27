@@ -16,16 +16,53 @@ limitations under the License.
 **************************************************************************/
 
 #include "in_mem_log_store.h"
+#include "logger.h"
+
+#include "libnuraft/nuraft.hxx"
 
 #include <cassert>
-#include <libnuraft/raft_server.hxx>
+template <> struct fmt::formatter<nuraft::log_val_type> {
+  constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
+    return ctx.begin();
+  }
+
+  /*
+  app_log         = 1,
+  conf            = 2,
+  cluster_server  = 3,
+  log_pack        = 4,
+  snp_sync_req    = 5,
+  custom          = 231,
+  */
+  template <typename FormatContext>
+  auto format(const nuraft::log_val_type &val, FormatContext &ctx) const
+      -> decltype(ctx.out()) {
+    switch (val) {
+    case nuraft::log_val_type::app_log:
+      return fmt::format_to(ctx.out(), "app_log");
+    case nuraft::log_val_type::conf:
+      return fmt::format_to(ctx.out(), "conf");
+    case nuraft::log_val_type::cluster_server:
+      return fmt::format_to(ctx.out(), "conf");
+    case nuraft::log_val_type::log_pack:
+      return fmt::format_to(ctx.out(), "conf");
+    case nuraft::log_val_type::snp_sync_req:
+      return fmt::format_to(ctx.out(), "conf");
+    case nuraft::log_val_type::custom:
+      return fmt::format_to(ctx.out(), "conf");
+    default:
+      return fmt::format_to(ctx.out(), "unknown({})", static_cast<int>(val));
+    }
+  }
+};
 
 namespace nuraft {
 
-inmem_log_store::inmem_log_store()
-    : start_idx_(1), raft_server_bwd_pointer_(nullptr), disk_emul_delay(0),
+inmem_log_store::inmem_log_store(VectorDatabase *vector_database)
+    : start_idx_(vector_database->getStartIndexID() + 1),
+      raft_server_bwd_pointer_(nullptr), disk_emul_delay(0),
       disk_emul_thread_(nullptr), disk_emul_thread_stop_signal_(false),
-      disk_emul_last_durable_index_(0) {
+      disk_emul_last_durable_index_(0), vector_database_(vector_database) {
   // Dummy entry for index 0.
   ptr<buffer> buf = buffer::alloc(sz_ulong);
   logs_[0] = cs_new<log_entry>(0, buf);
@@ -77,6 +114,22 @@ ulong inmem_log_store::append(ptr<log_entry> &entry) {
   size_t idx = start_idx_ + logs_.size() - 1;
   logs_[idx] = clone;
 
+  if (entry->get_val_type() == log_val_type::app_log) {
+    buffer &data = clone->get_buf();
+    std::string content(
+        reinterpret_cast<const char *>(data.data() + data.pos() + sizeof(int)),
+        data.size() - sizeof(int));
+    GlobalLogger->debug("Append app logs {}, content: {}, value type {}", idx,
+                        content, entry->get_val_type());
+    vector_database_->writeWALLogWithID(idx, content);
+  } else {
+    buffer &data = clone->get_buf();
+    std::string content(
+        reinterpret_cast<const char *>(data.data() + data.pos()), data.size());
+    GlobalLogger->debug("Append other logs {}, content: {}, value type {}", idx,
+                        content, entry->get_val_type());
+  }
+
   if (disk_emul_delay) {
     uint64_t cur_time = timer_helper::get_timeofday_us();
     disk_emul_logs_being_written_[cur_time + disk_emul_delay * 1000] = idx;
@@ -96,6 +149,17 @@ void inmem_log_store::write_at(ulong index, ptr<log_entry> &entry) {
     itr = logs_.erase(itr);
   }
   logs_[index] = clone;
+
+  buffer &data = clone->get_buf();
+  std::string content(
+      reinterpret_cast<const char *>(data.data() + data.pos() + sizeof(int)),
+      data.size() - sizeof(int));
+  GlobalLogger->debug("Append logs {}, content: {}, value type {}", index,
+                      content, entry->get_val_type());
+
+  if (entry->get_val_type() == log_val_type::app_log) {
+    vector_database_->writeWALLogWithID(index, content);
+  }
 
   if (disk_emul_delay) {
     uint64_t cur_time = timer_helper::get_timeofday_us();

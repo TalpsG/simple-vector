@@ -1,42 +1,32 @@
 #include "persistence.h"
 #include "index_factory.h"
 #include "logger.h"
-#include <cassert>
-#include <cerrno>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <fcntl.h>
 #include <fstream>
 #include <iostream>
-#include <memory>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <sstream>
 #include <string>
-#include <sys/types.h>
-#include <unistd.h>
 
-Persistence::Persistence() : increaseID_(1), lastSnapshotID_(0) {}
+Persistence::Persistence() : increaseID_(10), lastSnapshotID_(0) {}
 
 Persistence::~Persistence() {
-  if (wal_fd_ != -1) {
-    fsync(wal_fd_);
-    ::close(wal_fd_);
+  if (wal_log_file_.is_open()) {
+    wal_log_file_.close();
   }
 }
 
-void Persistence::init(const std::string &local_path, bool flush) {
-  need_flush_ = flush;
-  wal_fd_ = ::open(local_path.c_str(), O_RDWR | O_APPEND | O_CREAT,
-                   S_IRUSR | S_IWUSR);
-  if (wal_fd_ == -1) {
+void Persistence::init(const std::string &local_path) {
+  wal_log_file_.open(local_path, std::ios::in | std::ios::out | std::ios::app);
+  if (!wal_log_file_.is_open()) {
     GlobalLogger->error(
-        "an error occurred while writing the wal log entry. reason: {}",
+        "An error occurred while writing the WAL log entry. Reason: {}",
         std::strerror(errno));
-    exit(-1);
+    throw std::runtime_error("Failed to open WAL log file at path: " +
+                             local_path);
   }
+
   loadLastSnapshotID();
 }
 
@@ -56,18 +46,10 @@ void Persistence::writeWALLog(const std::string &operation_type,
   rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
   json_data.Accept(writer);
 
-  auto log = std::to_string(log_id) + "|" + version + "|" + operation_type +
-             "|" + buffer.GetString() + "\n";
-  uint64_t log_size = log.size();
-  auto write_size = ::write(wal_fd_, &log_size, sizeof(uint64_t));
-  if (write_size == -1) {
-    GlobalLogger->error(
-        "An error occurred while writing the WAL log entry. Reason: {}",
-        std::strerror(errno));
-  }
-  write_size = ::write(wal_fd_, log.c_str(), log.size());
+  wal_log_file_ << log_id << "|" << version << "|" << operation_type << "|"
+                << buffer.GetString() << std::endl;
 
-  if (write_size == -1) {
+  if (wal_log_file_.fail()) {
     GlobalLogger->error(
         "An error occurred while writing the WAL log entry. Reason: {}",
         std::strerror(errno));
@@ -75,9 +57,26 @@ void Persistence::writeWALLog(const std::string &operation_type,
     GlobalLogger->debug("Wrote WAL log entry: log_id={}, version={}, "
                         "operation_type={}, json_data_str={}",
                         log_id, version, operation_type, buffer.GetString());
-    if (need_flush_) {
-      ::fsync(wal_fd_);
-    }
+    wal_log_file_.flush();
+  }
+}
+
+void Persistence::writeWALRawLog(uint64_t log_id,
+                                 const std::string &operation_type,
+                                 const std::string &raw_data,
+                                 const std::string &version) {
+  wal_log_file_ << log_id << "|" << version << "|" << operation_type << "|"
+                << raw_data << std::endl;
+
+  if (wal_log_file_.fail()) {
+    GlobalLogger->error(
+        "An error occurred while writing the WAL raw log entry. Reason: {}",
+        std::strerror(errno));
+  } else {
+    GlobalLogger->debug("Wrote WAL raw log entry: log_id={}, version={}, "
+                        "operation_type={}, raw_data={}",
+                        log_id, version, operation_type, raw_data);
+    wal_log_file_.flush();
   }
 }
 
@@ -85,31 +84,9 @@ void Persistence::readNextWALLog(std::string *operation_type,
                                  rapidjson::Document *json_data) {
   GlobalLogger->debug("Reading next WAL log entry");
 
-  char buf[sizeof(uint64_t)];
-  ::lseek(wal_fd_, read_offset_, SEEK_SET);
-  while (true) {
-    auto read_size = read(wal_fd_, buf, sizeof(uint64_t));
-    if (read_size == 0 || read_size == -1) {
-      break;
-    }
-    assert(read_size == sizeof(uint64_t));
-    read_offset_ += read_size;
-    uint64_t log_size;
-    memcpy(&log_size, buf, sizeof(uint64_t));
-    auto log_buf = std::unique_ptr<char>(new char[log_size + 1]);
-    read_size = read(wal_fd_, log_buf.get(), log_size);
-    assert(read_size == log_size);
-    log_buf.get()[log_size] = '\0';
-    if (read_size == -1) {
-      GlobalLogger->error(
-          "An error occurred while reading the WAL log entry. Reason: {}",
-          std::strerror(errno));
-      ::lseek(wal_fd_, 0, SEEK_END);
-      return;
-    }
-
-    read_offset_ += read_size;
-    std::istringstream iss(log_buf.get());
+  std::string line;
+  while (std::getline(wal_log_file_, line)) {
+    std::istringstream iss(line);
     std::string log_id_str, version, json_data_str;
 
     std::getline(iss, log_id_str, '|');
@@ -128,9 +105,14 @@ void Persistence::readNextWALLog(std::string *operation_type,
           "Read WAL log entry: log_id={}, operation_type={}, json_data_str={}",
           log_id_str, *operation_type, json_data_str);
       return;
+    } else {
+      GlobalLogger->debug("Skip Read WAL log entry: log_id={}, "
+                          "operation_type={}, json_data_str={}",
+                          log_id_str, *operation_type, json_data_str);
     }
   }
-  ::lseek(wal_fd_, 0, SEEK_END);
+  operation_type->clear();
+  wal_log_file_.clear();
   GlobalLogger->debug("No more WAL log entries to read");
 }
 
@@ -138,12 +120,11 @@ void Persistence::takeSnapshot(ScalarStorage &scalar_storage) {
   GlobalLogger->debug("Taking snapshot");
 
   lastSnapshotID_ = increaseID_;
-  std::string snapshot_file_prefix = "snapshots_";
+  std::string snapshot_folder_path = "snapshots_";
   IndexFactory *index_factory = getGlobalIndexFactory();
-  index_factory->saveIndex(snapshot_file_prefix, scalar_storage);
+  index_factory->saveIndex(snapshot_folder_path, scalar_storage);
 
   saveLastSnapshotID();
-  // todo: switch log file
 }
 
 void Persistence::loadSnapshot(ScalarStorage &scalar_storage) {

@@ -4,7 +4,7 @@
     "indexType":"FLAT",
     "filter":{
         "fieldName":"int_field",
-        "fieldValue":47,
+        "value":47,
         "op":"="
     }
 }

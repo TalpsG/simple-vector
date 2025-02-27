@@ -20,14 +20,17 @@ limitations under the License.
 #include "in_mem_log_store.h"
 
 #include "libnuraft/nuraft.hxx"
+#include "vector_database.h"
+#include <iostream>
 
 namespace nuraft {
 
 class inmem_state_mgr : public state_mgr {
 public:
-  inmem_state_mgr(int srv_id, const std::string &endpoint)
+  inmem_state_mgr(int srv_id, const std::string &endpoint,
+                  VectorDatabase *vector_database)
       : my_id_(srv_id), my_endpoint_(endpoint),
-        cur_log_store_(cs_new<inmem_log_store>()) {
+        cur_log_store_(cs_new<inmem_log_store>(vector_database)) {
     my_srv_config_ = cs_new<srv_config>(srv_id, endpoint);
 
     // Initial cluster config: contains only one server (myself).

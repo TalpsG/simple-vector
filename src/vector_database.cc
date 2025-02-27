@@ -5,9 +5,7 @@
 #include "hnswlib_index.h"
 #include "index_factory.h"
 #include "logger.h"
-#include "persistence.h"
 #include "scalar_storage.h"
-#include <faiss/Index.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -18,11 +16,11 @@ VectorDatabase::VectorDatabase(const std::string &db_path,
     : scalar_storage_(db_path) {
   persistence_.init(wal_path);
 }
+
 void VectorDatabase::reloadDatabase() {
   GlobalLogger->info("Entering VectorDatabase::reloadDatabase()");
 
   persistence_.loadSnapshot(scalar_storage_);
-
   std::string operation_type;
   rapidjson::Document json_data;
   persistence_.readNextWALLog(&operation_type, &json_data);
@@ -48,6 +46,34 @@ void VectorDatabase::reloadDatabase() {
     persistence_.readNextWALLog(&operation_type, &json_data);
   }
 }
+
+void VectorDatabase::writeWALLog(const std::string &operation_type,
+                                 const rapidjson::Document &json_data) {
+  std::string version = "1.0";
+  persistence_.writeWALLog(operation_type, json_data, version);
+}
+
+void VectorDatabase::writeWALLogWithID(uint64_t log_id,
+                                       const std::string &data) {
+  std::string operation_type = "upsert";
+  std::string version = "1.0";
+  persistence_.writeWALRawLog(log_id, operation_type, data, version);
+}
+
+IndexFactory::IndexType VectorDatabase::getIndexTypeFromRequest(
+    const rapidjson::Document &json_request) {
+  if (json_request.HasMember(REQUEST_INDEX_TYPE) &&
+      json_request[REQUEST_INDEX_TYPE].IsString()) {
+    std::string index_type_str = json_request[REQUEST_INDEX_TYPE].GetString();
+    if (index_type_str == INDEX_TYPE_FLAT) {
+      return IndexFactory::IndexType::FLAT;
+    } else if (index_type_str == INDEX_TYPE_HNSW) {
+      return IndexFactory::IndexType::HNSW;
+    }
+  }
+  return IndexFactory::IndexType::UNKNOWN;
+}
+
 void VectorDatabase::upsert(uint64_t id, const rapidjson::Document &data,
                             IndexFactory::IndexType index_type) {
   rapidjson::StringBuffer buffer;
@@ -57,19 +83,15 @@ void VectorDatabase::upsert(uint64_t id, const rapidjson::Document &data,
 
   rapidjson::Document existingData;
   try {
-    // get old json data
     existingData = scalar_storage_.get_scalar(id);
   } catch (const std::runtime_error &e) {
   }
 
   if (existingData.IsObject()) {
-    // remove old data in index
     GlobalLogger->debug("try remove old index");
-    // TODO: existingVector is not used
-    std::vector<float> existingVector(existingData[REQUEST_VECTORS].Size());
-    for (rapidjson::SizeType i = 0; i < existingData[REQUEST_VECTORS].Size();
-         ++i) {
-      existingVector[i] = existingData[REQUEST_VECTORS][i].GetFloat();
+    std::vector<float> existingVector(existingData["vectors"].Size());
+    for (rapidjson::SizeType i = 0; i < existingData["vectors"].Size(); ++i) {
+      existingVector[i] = existingData["vectors"][i].GetFloat();
     }
 
     void *index = getGlobalIndexFactory()->getIndex(index_type);
@@ -81,7 +103,6 @@ void VectorDatabase::upsert(uint64_t id, const rapidjson::Document &data,
     }
     case IndexFactory::IndexType::HNSW: {
       HNSWLibIndex *hnsw_index = static_cast<HNSWLibIndex *>(index);
-      // TODO: markdelete
       break;
     }
     default:
@@ -89,10 +110,9 @@ void VectorDatabase::upsert(uint64_t id, const rapidjson::Document &data,
     }
   }
 
-  // get vectors
-  std::vector<float> newVector(data[REQUEST_VECTORS].Size());
-  for (rapidjson::SizeType i = 0; i < data[REQUEST_VECTORS].Size(); ++i) {
-    newVector[i] = data[REQUEST_VECTORS][i].GetFloat();
+  std::vector<float> newVector(data["vectors"].Size());
+  for (rapidjson::SizeType i = 0; i < data["vectors"].Size(); ++i) {
+    newVector[i] = data["vectors"][i].GetFloat();
   }
 
   GlobalLogger->debug("try add new index");
@@ -140,25 +160,6 @@ void VectorDatabase::upsert(uint64_t id, const rapidjson::Document &data,
   scalar_storage_.insert_scalar(id, data);
 }
 
-void VectorDatabase::writeWALLog(const std::string &operation_type,
-                                 const rapidjson::Document &json_data) {
-  std::string version(VERSION);
-  persistence_.writeWALLog(operation_type, json_data, version);
-}
-IndexFactory::IndexType VectorDatabase::getIndexTypeFromRequest(
-    const rapidjson::Document &json_request) {
-  if (json_request.HasMember(REQUEST_INDEX_TYPE) &&
-      json_request[REQUEST_INDEX_TYPE].IsString()) {
-    std::string index_type_str = json_request[REQUEST_INDEX_TYPE].GetString();
-    if (index_type_str == INDEX_TYPE_FLAT) {
-      return IndexFactory::IndexType::FLAT;
-    } else if (index_type_str == INDEX_TYPE_HNSW) {
-      return IndexFactory::IndexType::HNSW;
-    }
-  }
-  return IndexFactory::IndexType::UNKNOWN;
-}
-
 rapidjson::Document VectorDatabase::query(uint64_t id) {
   return scalar_storage_.get_scalar(id);
 }
@@ -183,12 +184,11 @@ VectorDatabase::search(const rapidjson::Document &json_request) {
   }
 
   roaring_bitmap_t *filter_bitmap = nullptr;
-  if (json_request.HasMember(REQUEST_FILTER) &&
-      json_request[REQUEST_FILTER].IsObject()) {
-    const auto &filter = json_request[REQUEST_FILTER];
-    std::string fieldName = filter[REQUEST_FILTER_FIELD].GetString();
-    std::string op_str = filter[REQUEST_FILTER_OP].GetString();
-    int64_t value = filter[REQUEST_FILTER_FIELD_VALUE].GetInt64();
+  if (json_request.HasMember("filter") && json_request["filter"].IsObject()) {
+    const auto &filter = json_request["filter"];
+    std::string fieldName = filter["fieldName"].GetString();
+    std::string op_str = filter["op"].GetString();
+    int64_t value = filter["value"].GetInt64();
 
     FilterIndex::Operation op = (op_str == "=")
                                     ? FilterIndex::Operation::EQUAL
@@ -227,3 +227,5 @@ VectorDatabase::search(const rapidjson::Document &json_request) {
 void VectorDatabase::takeSnapshot() {
   persistence_.takeSnapshot(scalar_storage_);
 }
+
+int64_t VectorDatabase::getStartIndexID() const { return persistence_.getID(); }
