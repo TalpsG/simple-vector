@@ -29,6 +29,7 @@ void RaftStuff::Init() {
   params.heart_beat_interval_ = 100;
   params.client_req_timeout_ = 3000;
   params.return_method_ = nuraft::raft_params::blocking;
+  params.snapshot_block_size_ = 5;
 
   // Logger.
   std::string log_file_name = "./srv.log";

@@ -26,10 +26,12 @@ public:
 
 private:
   int node_id;
+  std::string raft_address_;
   std::string endpoint;
   ptr<state_mgr> smgr_;
   ptr<state_machine> sm_;
   int port_;
+  int http_port_;
   raft_launcher launcher_;
   ptr<raft_server> raft_instance_;
   VectorDatabase *vector_database_;

@@ -8,6 +8,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <string>
 
 HttpServer::HttpServer(const std::string &host, int port,
                        VectorDatabase *vector_database, RaftStuff *raft_stuff)
@@ -401,7 +402,7 @@ void HttpServer::listNodeHandler(const httplib::Request &req,
         "endpoint", rapidjson::Value(std::get<1>(node_info).c_str(), allocator),
         allocator);
     node_object.AddMember(
-        "state", rapidjson::Value(std::get<2>(node_info).c_str(), allocator),
+        "role", rapidjson::Value(std::get<2>(node_info).c_str(), allocator),
         allocator);
     node_object.AddMember("last_log_idx", std::get<3>(node_info), allocator);
     node_object.AddMember("last_succ_resp_us", std::get<4>(node_info),
@@ -437,6 +438,12 @@ void HttpServer::getNodeHandler(const httplib::Request &req,
       allocator);
   node_object.AddMember("last_log_idx", std::get<3>(node_info), allocator);
   node_object.AddMember("last_succ_resp_us", std::get<4>(node_info), allocator);
+  
+  // url for master-server
+  node_object.AddMember("url", rapidjson::Value((host+":"+std::to_string(port)).c_str(),allocator), allocator);
+  node_object.AddMember("status",0,allocator);
+  
+
 
   json_response.AddMember("node", node_object, allocator);
 

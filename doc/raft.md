@@ -17,5 +17,5 @@ nuraft使用需要有三个对象
 
 由于基类已经规定好了一些接口，我们直接实现这些接口就可以了。
 有precommit,commit等一些接口。
-比如commit,我们在commit的时候应用commit来的wal日志就可以。
+比如commit,我们在commit的时候需要vdb应用commit来的wal日志就可以。
 
