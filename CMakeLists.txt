@@ -9,8 +9,12 @@ file(GLOB INC "include/*.h")
 file(GLOB MSERVER_SRC "master-server/src/*.cc")
 file(GLOB MSERVER_INC "master-server/include/*.h")
 
+file(GLOB PSERVER_SRC "proxy-server/src/*.cc")
+file(GLOB PSERVER_INC "proxy-server/include/*.h")
+
 include_directories(./include)
 include_directories(./master-server/include)
+include_directories(./proxy-server/include)
 
 
 set(Protobuf_DIR "/home/talps/.local/share/vcpkg/installed/x64-linux/share/protobuf")
@@ -56,3 +60,6 @@ COMMENT "Running clang-format on source files"
 
 add_executable(master-server ${MSERVER_SRC})
 target_link_libraries(master-server cpprestsdk::cpprest etcd-cpp-api httplib::httplib fmt::fmt CURL::libcurl gRPC::grpc++)
+
+add_executable(proxy-server ${PSERVER_SRC})
+target_link_libraries(proxy-server httplib::httplib fmt::fmt CURL::libcurl gRPC::grpc++)

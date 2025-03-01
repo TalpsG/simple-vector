@@ -67,7 +67,8 @@ void Persistence::writeWALRawLog(uint64_t log_id,
                                  const std::string &version) {
   // wal_log_file_ << log_id << "|" << version << "|" << operation_type << "|"
   //               << raw_data << std::endl;
-  wal_log_file_ << raw_data << std::endl;
+  wal_log_file_ << log_id << "|" << version << "|" << operation_type << "|"
+                << raw_data << std::endl;
 
   if (wal_log_file_.fail()) {
     GlobalLogger->error(

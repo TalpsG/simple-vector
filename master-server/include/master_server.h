@@ -16,6 +16,16 @@ struct ServerInfo {
     static ServerInfo fromJson(const rapidjson::Document& value);
 };
 
+struct Partition {
+    int partitionId;
+    std::string nodeId;
+};
+
+struct PartitionConfig {
+    std::string partitionKey;
+    int numberOfPartitions;
+    std::list<Partition> partitions; 
+};
 class MasterServer {
 public:
     explicit MasterServer(const std::string& etcdEndpoints, int httpPort);
@@ -35,9 +45,13 @@ private:
     static size_t writeCallback(void *contents, size_t size, size_t nmemb, void *userp);
 
     void getInstance(const httplib::Request& req, httplib::Response& res);
+    void getPartitionConfig(const httplib::Request& req, httplib::Response& res); 
+    void updatePartitionConfig(const httplib::Request& req, httplib::Response& res);
 
     void startNodeUpdateTimer();
     void updateNodeStates();
 
+    void doUpdatePartitionConfig(const std::string& instanceId, const std::string& partitionKey, int numberOfPartitions, const std::list<Partition>& partitions);
+    PartitionConfig doGetPartitionConfig(const std::string& instanceId);
 
 };
